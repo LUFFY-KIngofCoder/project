@@ -22,12 +22,56 @@ async function createUser(email, password) {
     body: JSON.stringify({ email, password, email_confirm: true }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(JSON.stringify(data));
+
+  // If user already exists, fetch and return the existing user instead of failing
+  if (!res.ok) {
+    try {
+      const parsed = data;
+      if (parsed && (parsed.error_code === 'email_exists' || parsed.message?.includes('email'))) {
+        // fetch all users (small projects) and find the user by email
+        const listRes = await fetch(`${SUPABASE_URL.replace(/\/+$/, '')}/auth/v1/admin/users?page=0&per_page=1000`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${SERVICE_KEY}`,
+            apikey: SERVICE_KEY,
+          },
+        });
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          const found = listData.users?.find(u => u.email === email) || listData.find(u => u.email === email);
+          if (found) return found;
+        }
+      }
+    } catch (err) {
+      // ignore and throw original
+    }
+
+    throw new Error(JSON.stringify(data));
+  }
+
   return data;
 }
 
 async function insertProfile(userId, email, full_name, role = 'employee') {
-  const res = await fetch(`${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/profiles`, {
+  // Check if a profile already exists for this user (trigger may have created it)
+  const check = await fetch(`${SUPABASE_URL.replace(/\/+$/,'')}/rest/v1/profiles?id=eq.${userId}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      apikey: SERVICE_KEY,
+    },
+  });
+  if (!check.ok) {
+    const err = await check.text();
+    throw new Error(`Failed to check existing profile: ${err}`);
+  }
+  const existing = await check.json();
+  if (Array.isArray(existing) && existing.length > 0) {
+    console.log('Profile already exists for user, skipping insert:', userId);
+    return existing[0];
+  }
+
+  const res = await fetch(`${SUPABASE_URL.replace(/\/+$/,'')}/rest/v1/profiles`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
