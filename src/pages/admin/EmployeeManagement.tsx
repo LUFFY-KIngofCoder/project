@@ -1,11 +1,26 @@
 import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase';
+import { Database } from '../../types/database';
 import { ProfileWithDepartment, Department } from '../../types';
 import { SectionCard } from '../../components/Card';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import { Plus, Edit2, Trash2, Search, MoreVertical, XCircle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin =
+  supabaseUrl && serviceRoleKey
+    ? createClient<Database>(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+    : null;
+
+// Debug helper to verify service role key is loaded at runtime
+// Remove after confirming it prints "true" in the browser console.
+console.info('[debug] service role key loaded?', !!serviceRoleKey);
 
 export default function EmployeeManagement() {
   const { profile: adminProfile } = useAuth();
@@ -296,15 +311,30 @@ export default function EmployeeManagement() {
 
       if (error) throw error;
 
-      // Note: The auth user will still exist in auth.users
-      // To delete auth user completely, you need Admin API access (service role key)
-      // This cannot be done from client-side code for security reasons
-      // Options:
-      // 1. Use Supabase Dashboard → Authentication → Users → Delete User
-      // 2. Create a backend API endpoint that uses Admin API
-      // 3. Use the seed script pattern with Admin API (server-side only)
-      
-      alert(`User ${employeeName} has been permanently deleted from the database.\n\n⚠️ Note: Their authentication account still exists in Supabase Auth.\n\nTo remove it completely:\n1. Go to Supabase Dashboard → Authentication → Users\n2. Find the user by email and delete them\n\nOr create a backend API endpoint using Admin API.`);
+      // Also attempt to delete from Supabase Auth (requires service role key)
+      if (supabaseAdmin) {
+        try {
+          const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(id);
+          if (authDeleteError) {
+            console.error('Auth delete error:', authDeleteError);
+            alert(
+              `Profile deleted, but auth user could not be removed automatically.\n\nPlease delete from Supabase Dashboard → Authentication → Users.\nReason: ${authDeleteError.message}`,
+            );
+          } else {
+            alert(`User ${employeeName} has been permanently deleted (profile + auth).`);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          console.error('Auth delete exception:', err);
+          alert(
+            `Profile deleted, but auth user could not be removed automatically.\n\nPlease delete from Supabase Dashboard → Authentication → Users.\nReason: ${message}`,
+          );
+        }
+      } else {
+        alert(
+          `User ${employeeName} has been permanently deleted from profiles.\n\nTo also remove the auth account:\n1) Set VITE_SUPABASE_SERVICE_ROLE_KEY in your .env\n2) Restart the app\n3) Delete again\n\nOr delete manually in Supabase Dashboard → Authentication → Users.`,
+        );
+      }
       
       loadEmployees();
       setShowDeleteMenu(null);
