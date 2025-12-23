@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Profile } from '../types';
@@ -20,6 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const adminUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -35,6 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .maybeSingle();
 
           setProfile(data);
+          // Store admin user ID for later comparison
+          if (data?.role === 'admin') {
+            adminUserIdRef.current = session.user.id;
+          }
         }
 
         setLoading(false);
@@ -43,8 +48,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       (async () => {
+        // If we have an admin user ID stored and the new session is NOT the admin,
+        // delay updating state to allow session restoration
+        if (adminUserIdRef.current && session?.user && session.user.id !== adminUserIdRef.current) {
+          // Longer delay to allow session restoration to complete
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Check if session was restored to admin
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (currentSession?.user?.id === adminUserIdRef.current) {
+            // Session was restored, don't update state - this prevents UI flicker
+            return;
+          }
+        }
+
+        // Only update state if session is valid and matches expected admin
         setSession(session);
         setUser(session?.user ?? null);
 
@@ -56,8 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .maybeSingle();
 
           setProfile(data);
+          // Update admin user ID reference
+          if (data?.role === 'admin') {
+            adminUserIdRef.current = session.user.id;
+          } else {
+            adminUserIdRef.current = null;
+          }
         } else {
           setProfile(null);
+          adminUserIdRef.current = null;
         }
       })();
     });
@@ -67,12 +94,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error, data } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
+
+      // Check if user profile exists and is active
+      if (data.user) {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (!profileData) {
+          await supabase.auth.signOut();
+          throw new Error('User profile not found. Please contact administrator.');
+        }
+
+        if (!profileData.is_active) {
+          await supabase.auth.signOut();
+          throw new Error('Your account has been deactivated. Please contact your administrator.');
+        }
+      }
 
       return { error: null };
     } catch (error) {

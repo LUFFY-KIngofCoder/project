@@ -26,3 +26,6 @@ export interface AttendanceStats {
   onLeave: number;
   total: number;
 }
+
+export type Holiday = Database['public']['Tables']['holidays']['Row'];
+export type Event = Database['public']['Tables']['events']['Row'];

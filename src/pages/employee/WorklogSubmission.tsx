@@ -32,12 +32,12 @@ export default function WorklogSubmission({ onSuccess }: WorklogSubmissionProps)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const { data } = await supabase
-      .from('worklogs')
-      .select('*')
-      .eq('employee_id', profile.id)
-      .gte('date', sevenDaysAgo.toISOString().split('T')[0])
-      .order('date', { ascending: false });
+      const { data } = await supabase
+        .from('worklogs')
+        .select('*')
+        .eq('employee_id', profile.id)
+        .gte('date', sevenDaysAgo.toISOString().split('T')[0])
+        .order('date', { ascending: false });
 
     setRecentWorklogs(data || []);
   };
@@ -208,13 +208,26 @@ export default function WorklogSubmission({ onSuccess }: WorklogSubmissionProps)
                       <span className="text-sm text-gray-600">{worklog.hours_spent}h</span>
                       <span
                         className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          worklog.is_approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                          worklog.is_approved
+                            ? 'bg-green-100 text-green-800'
+                            : worklog.approved_by
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-yellow-100 text-yellow-800'
                         }`}
                       >
-                        {worklog.is_approved ? 'Approved' : 'Pending'}
+                        {worklog.is_approved
+                          ? 'Approved'
+                          : worklog.approved_by
+                          ? 'Denied'
+                          : 'Pending'}
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 line-clamp-2">{worklog.tasks_completed}</p>
+                    {worklog.review_note && (
+                      <p className="mt-1 text-xs text-red-700">
+                        Admin note: <span className="font-medium">{worklog.review_note}</span>
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={() => handleEdit(worklog)}

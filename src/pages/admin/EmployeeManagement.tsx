@@ -4,15 +4,22 @@ import { ProfileWithDepartment, Department } from '../../types';
 import { SectionCard } from '../../components/Card';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
-import { Plus, Edit2, Trash2, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, MoreVertical, XCircle, CheckCircle } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function EmployeeManagement() {
+  const { profile: adminProfile } = useAuth();
   const [employees, setEmployees] = useState<ProfileWithDepartment[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<ProfileWithDepartment | null>(null);
+  const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
+  const [showDeleteMenu, setShowDeleteMenu] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -20,22 +27,45 @@ export default function EmployeeManagement() {
     phone: '',
     department_id: '',
     role: 'employee' as 'admin' | 'employee',
+    weekly_wfh_limit: '',
   });
 
   useEffect(() => {
     loadEmployees();
     loadDepartments();
-  }, []);
+  }, [showInactive]);
+
+  // Close delete menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeleteMenu && !(event.target as Element).closest('.delete-menu-container')) {
+        setShowDeleteMenu(null);
+      }
+    };
+
+    if (showDeleteMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showDeleteMenu]);
 
   const loadEmployees = async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('profiles')
         .select(`
           *,
           department:departments(*)
-        `)
-        .order('created_at', { ascending: false });
+        `);
+
+      // Filter: Show only active employees in main list, inactive when toggle is on
+      if (!showInactive) {
+        query = query.eq('is_active', true);
+      } else {
+        query = query.eq('is_active', false);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
       setEmployees(data || []);
@@ -54,50 +84,143 @@ export default function EmployeeManagement() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Prevent double submission
+    if (isCreatingUser) return;
+
     try {
       if (editingEmployee) {
         const { error } = await supabase
           .from('profiles')
           .update({
             full_name: formData.full_name,
-            phone: formData.phone,
+            phone: formData.phone || null,
             department_id: formData.department_id || null,
             role: formData.role,
+            weekly_wfh_limit: formData.weekly_wfh_limit === '' ? null : Number(formData.weekly_wfh_limit),
           })
           .eq('id', editingEmployee.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Update error:', error);
+          throw new Error(error.message || 'Failed to update employee');
+        }
       } else {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: {
-              full_name: formData.full_name,
-              role: formData.role,
+        // Set flag to prevent UI updates during user creation
+        setIsCreatingUser(true);
+
+        try {
+          // Save current admin session before creating user
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          
+          if (!currentSession) {
+            throw new Error('Admin session not found. Please log in again.');
+          }
+
+          // Store admin session data to restore later
+          const adminSessionData = {
+            access_token: currentSession.access_token,
+            refresh_token: currentSession.refresh_token,
+          };
+
+          // Create new user (this will auto-sign-in as the new user)
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: formData.email,
+            password: formData.password,
+            options: {
+              data: {
+                full_name: formData.full_name,
+                role: formData.role,
+              },
             },
-          },
-        });
+          });
 
-        if (authError) throw authError;
+          if (authError) {
+            console.error('SignUp error:', authError);
+            throw new Error(authError.message || 'Failed to create user account');
+          }
 
-        if (authData.user) {
-          await supabase
+          if (!authData.user) {
+            throw new Error('User creation failed - no user returned');
+          }
+
+          // Immediately sign out and restore admin session BEFORE any UI updates
+          await supabase.auth.signOut();
+          
+          // Restore admin session synchronously
+          const { error: restoreError } = await supabase.auth.setSession({
+            access_token: adminSessionData.access_token,
+            refresh_token: adminSessionData.refresh_token,
+          });
+
+          if (restoreError) {
+            console.error('Failed to restore admin session:', restoreError);
+            throw new Error('Failed to restore admin session. Please try again.');
+          }
+
+          // Wait a bit for the trigger to create the profile
+          await new Promise((resolve) => setTimeout(resolve, 300));
+
+          // Update profile with all fields (trigger may have created basic profile)
+          const { error: profileError } = await supabase
             .from('profiles')
             .update({
-              phone: formData.phone,
+              full_name: formData.full_name,
+              phone: formData.phone || null,
               department_id: formData.department_id || null,
+              role: formData.role,
+              weekly_wfh_limit: formData.weekly_wfh_limit === '' ? null : Number(formData.weekly_wfh_limit),
+              is_active: true,
             })
             .eq('id', authData.user.id);
+
+          if (profileError) {
+            console.error('Profile update error:', profileError);
+            // If update fails, try insert (in case trigger didn't fire)
+            const { error: insertError } = await supabase
+              .from('profiles')
+              .insert({
+                id: authData.user.id,
+                email: formData.email,
+                full_name: formData.full_name,
+                phone: formData.phone || null,
+                department_id: formData.department_id || null,
+                role: formData.role,
+                weekly_wfh_limit: formData.weekly_wfh_limit === '' ? null : Number(formData.weekly_wfh_limit),
+                is_active: true,
+              });
+
+            if (insertError) {
+              console.error('Profile insert error:', insertError);
+              throw new Error(insertError.message || 'Failed to create employee profile');
+            }
+          }
+
+          // Success! Show notification and close modal
+          setSuccessMessage(`Employee "${formData.full_name}" added successfully!`);
+          setIsModalOpen(false);
+          resetForm();
+          loadEmployees();
+
+          // Clear success message after 3 seconds
+          setTimeout(() => {
+            setSuccessMessage(null);
+          }, 3000);
+        } finally {
+          // Always reset the flag
+          setIsCreatingUser(false);
         }
       }
 
-      setIsModalOpen(false);
-      resetForm();
-      loadEmployees();
+      // Only close modal and reload if editing (not creating)
+      if (editingEmployee) {
+        setIsModalOpen(false);
+        resetForm();
+        loadEmployees();
+      }
     } catch (error) {
       console.error('Error saving employee:', error);
-      alert('Error saving employee. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      alert(`Error saving employee: ${errorMessage}\n\nCheck the browser console for details.`);
     }
   };
 
@@ -110,21 +233,84 @@ export default function EmployeeManagement() {
       phone: employee.phone || '',
       department_id: employee.department_id || '',
       role: employee.role,
+      weekly_wfh_limit: (employee as any).weekly_wfh_limit != null ? String((employee as any).weekly_wfh_limit) : '',
     });
     setIsModalOpen(true);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this employee?')) return;
+    if (!confirm('Are you sure you want to deactivate this employee?\n\nThey will be marked as inactive but can be reactivated later.')) return;
 
     try {
       const { error } = await supabase.from('profiles').update({ is_active: false }).eq('id', id);
 
       if (error) throw error;
       loadEmployees();
+      setShowDeleteMenu(null);
     } catch (error) {
-      console.error('Error deleting employee:', error);
-      alert('Error deleting employee. Please try again.');
+      console.error('Error deactivating employee:', error);
+      alert('Error deactivating employee. Please try again.');
+    }
+  };
+
+  const handleReactivate = async (id: string) => {
+    try {
+      const { error } = await supabase.from('profiles').update({ is_active: true }).eq('id', id);
+
+      if (error) throw error;
+      loadEmployees();
+      alert('Employee reactivated successfully.');
+    } catch (error) {
+      console.error('Error reactivating employee:', error);
+      alert('Error reactivating employee. Please try again.');
+    }
+  };
+
+  const handleHardDelete = async (id: string) => {
+    const employee = employees.find(emp => emp.id === id);
+    const employeeName = employee?.full_name || 'this employee';
+    
+    const confirmMessage = `⚠️ PERMANENT DELETE ⚠️\n\nThis will completely remove ${employeeName} and ALL their data from the database:\n\n• User account\n• All attendance records\n• All worklogs\n• All related data\n\nThis action CANNOT be undone!\n\nAre you absolutely sure you want to permanently delete ${employeeName}?`;
+    
+    if (!confirm(confirmMessage)) {
+      setShowDeleteMenu(null);
+      return;
+    }
+
+    // Double confirmation
+    if (!confirm('FINAL CONFIRMATION:\n\nYou are about to PERMANENTLY DELETE this user.\n\nType "DELETE" in the next prompt to confirm.')) {
+      setShowDeleteMenu(null);
+      return;
+    }
+
+    try {
+      setDeletingEmployeeId(id);
+      
+      // Delete from profiles table (this will cascade delete attendance & worklogs)
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Note: The auth user will still exist in auth.users
+      // To delete auth user completely, you need Admin API access (service role key)
+      // This cannot be done from client-side code for security reasons
+      // Options:
+      // 1. Use Supabase Dashboard → Authentication → Users → Delete User
+      // 2. Create a backend API endpoint that uses Admin API
+      // 3. Use the seed script pattern with Admin API (server-side only)
+      
+      alert(`User ${employeeName} has been permanently deleted from the database.\n\n⚠️ Note: Their authentication account still exists in Supabase Auth.\n\nTo remove it completely:\n1. Go to Supabase Dashboard → Authentication → Users\n2. Find the user by email and delete them\n\nOr create a backend API endpoint using Admin API.`);
+      
+      loadEmployees();
+      setShowDeleteMenu(null);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      alert('Error deleting user. Please check the console for details.');
+    } finally {
+      setDeletingEmployeeId(null);
     }
   };
 
@@ -136,6 +322,7 @@ export default function EmployeeManagement() {
       phone: '',
       department_id: '',
       role: 'employee',
+      weekly_wfh_limit: '',
     });
     setEditingEmployee(null);
   };
@@ -156,7 +343,21 @@ export default function EmployeeManagement() {
 
   return (
     <div className="space-y-6">
+      {successMessage && (
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-2 animate-in slide-in-from-top">
+          <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-green-800 font-medium">{successMessage}</p>
+        </div>
+      )}
       <SectionCard>
+        {showInactive && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <h3 className="text-lg font-semibold text-yellow-900 mb-2">Inactive Employees</h3>
+            <p className="text-sm text-yellow-800">
+              Viewing deactivated employees. You can reactivate them or permanently delete them.
+            </p>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0 mb-6">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -168,16 +369,27 @@ export default function EmployeeManagement() {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          <Button
-            onClick={() => {
-              resetForm();
-              setIsModalOpen(true);
-            }}
-            className="flex items-center space-x-2"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add Employee</span>
-          </Button>
+          <div className="flex items-center space-x-2">
+            <Button
+              onClick={() => setShowInactive(!showInactive)}
+              variant={showInactive ? 'primary' : 'secondary'}
+              className="flex items-center space-x-2"
+            >
+              <span>{showInactive ? 'Show Active' : 'Show Inactive'}</span>
+            </Button>
+            {!showInactive && (
+              <Button
+                onClick={() => {
+                  resetForm();
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center space-x-2"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Employee</span>
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -235,18 +447,72 @@ export default function EmployeeManagement() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(employee)}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(employee.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center justify-end space-x-2">
+                      {showInactive ? (
+                        // In inactive view: Show reactivate and delete buttons directly
+                        <>
+                          <button
+                            onClick={() => handleReactivate(employee.id)}
+                            className="text-green-600 hover:text-green-900 p-1 rounded hover:bg-green-50"
+                            title="Reactivate employee"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleHardDelete(employee.id)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                            title="Permanently delete"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        </>
+                      ) : (
+                        // In active view: Show edit and delete menu
+                        <>
+                          <button
+                            onClick={() => handleEdit(employee)}
+                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                            title="Edit employee"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          <div className="relative delete-menu-container">
+                            <button
+                              onClick={() => setShowDeleteMenu(showDeleteMenu === employee.id ? null : employee.id)}
+                              className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                              title="Delete options"
+                              disabled={deletingEmployeeId === employee.id}
+                            >
+                              {deletingEmployeeId === employee.id ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                              ) : (
+                                <MoreVertical className="h-4 w-4" />
+                              )}
+                            </button>
+                            {showDeleteMenu === employee.id && (
+                              <div className="absolute right-0 mt-1 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-10">
+                                <div className="py-1">
+                                  <button
+                                    onClick={() => handleDelete(employee.id)}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    <span>Deactivate</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleHardDelete(employee.id)}
+                                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2 border-t border-gray-200"
+                                  >
+                                    <XCircle className="h-4 w-4" />
+                                    <span className="font-medium">Permanently Delete</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -267,6 +533,11 @@ export default function EmployeeManagement() {
         }}
         title={editingEmployee ? 'Edit Employee' : 'Add New Employee'}
       >
+        {!editingEmployee && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+            <strong>Note:</strong> If user creation fails, check Supabase Dashboard → Authentication → Settings and disable "Enable email confirmations" for development.
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
@@ -308,10 +579,14 @@ export default function EmployeeManagement() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
             <input
               type="tel"
+              pattern="^[0-9]{10}$"
+              maxLength={10}
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              placeholder="10 digit mobile number"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+            <p className="mt-1 text-xs text-gray-500">Enter a 10 digit phone number (numbers only).</p>
           </div>
 
           <div>
@@ -328,6 +603,28 @@ export default function EmployeeManagement() {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Weekly Work From Home Limit
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={formData.weekly_wfh_limit}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  weekly_wfh_limit: e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value))),
+                })
+              }
+              placeholder="e.g. 2 (number of WFH days allowed per week)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Leave empty for unlimited WFH, or set how many days per week this employee can work from home.
+            </p>
           </div>
 
           <div>
@@ -353,8 +650,8 @@ export default function EmployeeManagement() {
             >
               Cancel
             </Button>
-            <Button type="submit" variant="primary">
-              {editingEmployee ? 'Update' : 'Create'}
+            <Button type="submit" variant="primary" disabled={isCreatingUser}>
+              {isCreatingUser ? 'Creating...' : editingEmployee ? 'Update' : 'Create'}
             </Button>
           </div>
         </form>

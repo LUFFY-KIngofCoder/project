@@ -31,6 +31,7 @@ export type Database = {
           phone: string | null;
           join_date: string;
           is_active: boolean;
+          weekly_wfh_limit: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -43,6 +44,7 @@ export type Database = {
           phone?: string | null;
           join_date?: string;
           is_active?: boolean;
+          weekly_wfh_limit?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -55,6 +57,7 @@ export type Database = {
           phone?: string | null;
           join_date?: string;
           is_active?: boolean;
+          weekly_wfh_limit?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -74,6 +77,7 @@ export type Database = {
           employee_id: string;
           date: string;
           status: 'present' | 'half_day' | 'on_leave' | 'absent';
+          work_mode: 'wfh' | 'physical' | null;
           reason: string | null;
           check_in_time: string | null;
           check_out_time: string | null;
@@ -88,6 +92,7 @@ export type Database = {
           employee_id: string;
           date: string;
           status: 'present' | 'half_day' | 'on_leave' | 'absent';
+          work_mode?: 'wfh' | 'physical' | null;
           reason?: string | null;
           check_in_time?: string | null;
           check_out_time?: string | null;
@@ -102,6 +107,7 @@ export type Database = {
           employee_id?: string;
           date?: string;
           status?: 'present' | 'half_day' | 'on_leave' | 'absent';
+          work_mode?: 'wfh' | 'physical' | null;
           reason?: string | null;
           check_in_time?: string | null;
           check_out_time?: string | null;
@@ -139,6 +145,7 @@ export type Database = {
           is_approved: boolean;
           approved_by: string | null;
           approved_at: string | null;
+          review_note: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -152,6 +159,7 @@ export type Database = {
           is_approved?: boolean;
           approved_by?: string | null;
           approved_at?: string | null;
+          review_note?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -165,6 +173,7 @@ export type Database = {
           is_approved?: boolean;
           approved_by?: string | null;
           approved_at?: string | null;
+          review_note?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -179,6 +188,77 @@ export type Database = {
           {
             foreignKeyName: 'worklogs_approved_by_fkey';
             columns: ['approved_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      holidays: {
+        Row: {
+          id: string;
+          date: string;
+          is_holiday: boolean;
+          name: string | null;
+          description: string | null;
+          event_name: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          date: string;
+          is_holiday?: boolean;
+          name?: string | null;
+          description?: string | null;
+          event_name?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          date?: string;
+          is_holiday?: boolean;
+          name?: string | null;
+          description?: string | null;
+          event_name?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
+      events: {
+        Row: {
+          id: string;
+          date: string;
+          name: string;
+          description: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          date: string;
+          name: string;
+          description?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          date?: string;
+          name?: string;
+          description?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'events_created_by_fkey';
+            columns: ['created_by'];
             isOneToOne: false;
             referencedRelation: 'profiles';
             referencedColumns: ['id'];

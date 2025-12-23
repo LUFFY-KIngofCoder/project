@@ -15,6 +15,7 @@ export default function AttendanceManagement() {
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [emailFilter, setEmailFilter] = useState('');
   const [editingRecord, setEditingRecord] = useState<AttendanceWithProfile | null>(null);
 
   useEffect(() => {
@@ -77,10 +78,22 @@ export default function AttendanceManagement() {
   };
 
   const handleReject = async (id: string) => {
-    if (!confirm('Are you sure you want to reject this attendance record?')) return;
+    if (
+      !confirm(
+        'Are you sure you want to reject this attendance record?\n\nThe employee status will stay the same, but it will be marked as Denied.',
+      )
+    )
+      return;
 
     try {
-      const { error } = await supabase.from('attendance').delete().eq('id', id);
+      const { error } = await supabase
+        .from('attendance')
+        .update({
+          is_approved: false,
+          approved_by: profile?.id,
+          approved_at: new Date().toISOString(),
+        })
+        .eq('id', id);
 
       if (error) throw error;
       loadAttendance();
@@ -99,12 +112,25 @@ export default function AttendanceManagement() {
     if (!editingRecord) return;
 
     try {
+      const isWorkingDay = editingRecord.status === 'present' || editingRecord.status === 'half_day';
+      const payload: any = {
+        status: editingRecord.status,
+        reason: editingRecord.reason,
+        is_approved: true,
+        approved_by: profile?.id,
+        approved_at: new Date().toISOString(),
+      };
+
+      // Allow admin to set work_mode only for working days
+      if (isWorkingDay) {
+        payload.work_mode = (editingRecord as any).work_mode || 'physical';
+      } else {
+        payload.work_mode = null;
+      }
+
       const { error } = await supabase
         .from('attendance')
-        .update({
-          status: editingRecord.status,
-          reason: editingRecord.reason,
-        })
+        .update(payload)
         .eq('id', editingRecord.id);
 
       if (error) throw error;
@@ -151,6 +177,12 @@ export default function AttendanceManagement() {
     }
   };
 
+  const filteredAttendance = attendance.filter((record) => {
+    if (!emailFilter.trim()) return true;
+    const email = ((record.employee as any)?.email || '').toLowerCase();
+    return email.includes(emailFilter.toLowerCase());
+  });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -191,6 +223,13 @@ export default function AttendanceManagement() {
               <option value="on_leave">On Leave</option>
               <option value="absent">Absent</option>
             </select>
+            <input
+              type="text"
+              placeholder="Filter by employee email"
+              value={emailFilter}
+              onChange={(e) => setEmailFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
           </div>
           <Button onClick={exportToCSV} variant="secondary" className="flex items-center space-x-2">
             <Download className="h-4 w-4" />
@@ -223,7 +262,7 @@ export default function AttendanceManagement() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {attendance.map((record) => (
+              {filteredAttendance.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {new Date(record.date).toLocaleDateString()}
@@ -233,18 +272,29 @@ export default function AttendanceManagement() {
                     <div className="text-sm text-gray-500">{(record.employee as any)?.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(record.status)}`}>
-                      {record.status.replace('_', ' ')}
-                    </span>
+                    <div className="flex flex-col space-y-1">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(record.status)}`}>
+                        {record.status.replace('_', ' ')}
+                      </span>
+                      {(record.status === 'present' || record.status === 'half_day') && record.work_mode && (
+                        <span className="inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-full bg-blue-50 text-blue-800 border border-blue-100">
+                          {record.work_mode === 'wfh' ? 'Work From Home' : 'Physical'}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{record.reason || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        record.is_approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                        record.is_approved
+                          ? 'bg-green-100 text-green-800'
+                          : record.approved_by
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-yellow-100 text-yellow-800'
                       }`}
                     >
-                      {record.is_approved ? 'Yes' : 'Pending'}
+                      {record.is_approved ? 'Approved' : record.approved_by ? 'Denied' : 'Pending'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -255,7 +305,7 @@ export default function AttendanceManagement() {
                       >
                         Edit
                       </button>
-                      {!record.is_approved && (
+                      {!record.is_approved && !record.approved_by && (
                         <>
                           <button
                             onClick={() => handleApprove(record.id)}
@@ -299,10 +349,18 @@ export default function AttendanceManagement() {
               <select
                 value={editingRecord.status}
                 onChange={(e) =>
-                  setEditingRecord({
-                    ...editingRecord,
-                    status: e.target.value as 'present' | 'half_day' | 'on_leave' | 'absent',
-                  })
+                  setEditingRecord((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          status: e.target.value as 'present' | 'half_day' | 'on_leave' | 'absent',
+                          // Clear work_mode when not working day
+                          ...(e.target.value === 'present' || e.target.value === 'half_day'
+                            ? {}
+                            : { work_mode: null }),
+                        }
+                      : prev,
+                  )
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
@@ -312,6 +370,48 @@ export default function AttendanceManagement() {
                 <option value="absent">Absent</option>
               </select>
             </div>
+
+            {(editingRecord.status === 'present' || editingRecord.status === 'half_day') && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Work Mode</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {[
+                    {
+                      value: 'physical',
+                      label: 'Physical (On-site)',
+                      desc: 'Employee is working from office / client site.',
+                    },
+                    {
+                      value: 'wfh',
+                      label: 'Work From Home',
+                      desc: 'Employee is working remotely.',
+                    },
+                  ].map((option) => (
+                    <label
+                      key={option.value}
+                      className={`relative block p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                        (editingRecord as any).work_mode === option.value
+                          ? 'border-blue-600 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="work_mode_admin"
+                        value={option.value}
+                        checked={(editingRecord as any).work_mode === option.value}
+                        onChange={() =>
+                          setEditingRecord((prev) => (prev ? { ...prev, work_mode: option.value as any } : prev))
+                        }
+                        className="sr-only"
+                      />
+                      <div className="font-medium text-gray-900 text-sm">{option.label}</div>
+                      <div className="text-xs text-gray-600 mt-1">{option.desc}</div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
