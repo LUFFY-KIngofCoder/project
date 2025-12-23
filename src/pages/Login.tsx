@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn, AlertCircle } from 'lucide-react';
 import Button from '../components/Button';
+import logo from '../../logo/logo.svg';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -28,8 +29,8 @@ export default function Login() {
       <div className="max-w-md w-full">
         <div className="bg-white rounded-xl shadow-lg p-8">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
-              <LogIn className="h-8 w-8 text-blue-600" />
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-50 rounded-full mb-4 overflow-hidden">
+              <img src={logo} alt="Company logo" className="h-16 w-16 object-contain" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900">Welcome Back</h1>
             <p className="text-gray-600 mt-2">Sign in to your account</p>
@@ -83,18 +84,6 @@ export default function Login() {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
-
-          <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-            <p className="text-sm font-medium text-gray-700 mb-2">Demo Accounts:</p>
-            <div className="space-y-2 text-sm text-gray-600">
-              <div>
-                <span className="font-medium">Admin:</span> admin@company.com / admin123
-              </div>
-              <div>
-                <span className="font-medium">Employee:</span> employee@company.com / employee123
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

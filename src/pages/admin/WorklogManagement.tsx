@@ -14,6 +14,7 @@ export default function WorklogManagement() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [approvalFilter, setApprovalFilter] = useState('all');
+  const [emailFilter, setEmailFilter] = useState('');
   const [selectedWorklog, setSelectedWorklog] = useState<WorklogWithProfile | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -31,7 +32,7 @@ export default function WorklogManagement() {
     if (startDate && endDate) {
       loadWorklogs();
     }
-  }, [startDate, endDate, approvalFilter]);
+  }, [startDate, endDate, approvalFilter, emailFilter]);
 
   const loadWorklogs = async () => {
     try {
@@ -57,7 +58,14 @@ export default function WorklogManagement() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setWorklogs(data || []);
+
+      const filtered = (data || []).filter((record) => {
+        if (!emailFilter.trim()) return true;
+        const email = ((record.employee as any)?.email || '').toLowerCase();
+        return email.includes(emailFilter.trim().toLowerCase());
+      });
+
+      setWorklogs(filtered);
     } catch (error) {
       console.error('Error loading worklogs:', error);
     } finally {
@@ -180,6 +188,13 @@ export default function WorklogManagement() {
               <option value="pending">Pending</option>
               <option value="denied">Denied</option>
             </select>
+            <input
+              type="text"
+              value={emailFilter}
+              onChange={(e) => setEmailFilter(e.target.value)}
+              placeholder="Filter by email"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
           </div>
           <Button onClick={exportToCSV} variant="secondary" className="flex items-center space-x-2">
             <Download className="h-4 w-4" />

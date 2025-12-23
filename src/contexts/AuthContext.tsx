@@ -11,6 +11,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
+  refreshProfile: () => Promise<Profile | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -133,6 +134,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   };
 
+  const refreshProfile = async () => {
+    if (!user) return null;
+    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    setProfile(data);
+    if (data?.role === 'admin') {
+      adminUserIdRef.current = user.id;
+    }
+    return data;
+  };
+
   const value = {
     user,
     profile,
@@ -141,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signOut,
     isAdmin: profile?.role === 'admin',
+    refreshProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

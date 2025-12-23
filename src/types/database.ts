@@ -31,6 +31,7 @@ export type Database = {
           phone: string | null;
           join_date: string;
           is_active: boolean;
+          must_change_password: boolean;
           weekly_wfh_limit: number | null;
           created_at: string;
           updated_at: string;
@@ -44,6 +45,7 @@ export type Database = {
           phone?: string | null;
           join_date?: string;
           is_active?: boolean;
+          must_change_password?: boolean;
           weekly_wfh_limit?: number | null;
           created_at?: string;
           updated_at?: string;
@@ -57,6 +59,7 @@ export type Database = {
           phone?: string | null;
           join_date?: string;
           is_active?: boolean;
+          must_change_password?: boolean;
           weekly_wfh_limit?: number | null;
           created_at?: string;
           updated_at?: string;

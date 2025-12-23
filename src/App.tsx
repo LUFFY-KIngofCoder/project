@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
 import Loading from './components/Loading';
+import ForcePasswordChange from './pages/ForcePasswordChange';
 
 function AppContent() {
   const { user, profile, loading } = useAuth();
@@ -43,6 +44,11 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  // Enforce password change for users flagged by admin
+  if ((profile as any).must_change_password) {
+    return <ForcePasswordChange />;
   }
 
   if (profile.role === 'admin') {

@@ -170,6 +170,7 @@ export default function EmployeeManagement() {
               role: formData.role,
               weekly_wfh_limit: formData.weekly_wfh_limit === '' ? null : Number(formData.weekly_wfh_limit),
               is_active: true,
+              must_change_password: true,
             })
             .eq('id', authData.user.id);
 
@@ -187,6 +188,7 @@ export default function EmployeeManagement() {
                 role: formData.role,
                 weekly_wfh_limit: formData.weekly_wfh_limit === '' ? null : Number(formData.weekly_wfh_limit),
                 is_active: true,
+                must_change_password: true,
               });
 
             if (insertError) {
