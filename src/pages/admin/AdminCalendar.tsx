@@ -106,7 +106,7 @@ export default function AdminCalendar() {
   const isWeekend = (day: number): boolean => {
     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     const dayOfWeek = date.getDay();
-    return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+    return dayOfWeek === 0; // Sunday only
   };
 
   const handleDateClick = (day: number) => {
@@ -339,8 +339,8 @@ export default function AdminCalendar() {
               // Check if there's an explicit override in DB
               const explicitOverride = holidays.find(h => h.date === dateStr);
               const isHoliday = explicitOverride 
-                ? explicitOverride.is_holiday 
-                : (isWeekendDay); // Default: weekends are holidays
+                            ? explicitOverride.is_holiday 
+                            : (isWeekendDay); // Default: Sundays are holidays
               const displayHoliday = explicitOverride && explicitOverride.is_holiday 
                 ? explicitOverride 
                 : (isWeekendDay && !explicitOverride 

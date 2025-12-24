@@ -95,9 +95,9 @@ export default function AttendanceSubmission({ onSuccess }: AttendanceSubmission
       const today = new Date();
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       
-      // Check if today is a weekend
+      // Check if today is Sunday (default holiday)
       const dayOfWeek = today.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const isSunday = dayOfWeek === 0;
 
       // Check database for holiday
       const { data } = await supabase
@@ -109,8 +109,8 @@ export default function AttendanceSubmission({ onSuccess }: AttendanceSubmission
       if (data) {
         setTodayHoliday(data);
         setIsHoliday(data.is_holiday);
-      } else if (isWeekend) {
-        // Default weekends are holidays
+      } else if (isSunday) {
+        // Default: Sundays are holidays
         setIsHoliday(true);
       } else {
         setIsHoliday(false);

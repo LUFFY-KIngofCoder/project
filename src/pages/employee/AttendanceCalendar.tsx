@@ -130,19 +130,19 @@ export default function AttendanceCalendar() {
   const isWeekend = (day: number): boolean => {
     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     const dayOfWeek = date.getDay();
-    return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+    return dayOfWeek === 0; // Sunday only
   };
 
   const isHoliday = (day: number): boolean => {
     const holiday = getHolidayForDate(day);
     if (holiday) return true;
     const isWeekendDay = isWeekend(day);
-    // Check if weekend is explicitly marked as working day
+    // Check if Sunday is explicitly marked as working day
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const weekendOverride = holidays.find(h => h.date === dateStr && !h.is_holiday);
-    return isWeekendDay && !weekendOverride; // Default weekends are holidays unless overridden
+    return isWeekendDay && !weekendOverride; // Default Sundays are holidays unless overridden
   };
 
   const getStatusColor = (status: string) => {
