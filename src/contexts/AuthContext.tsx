@@ -16,6 +16,13 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Global flag to temporarily ignore auth state changes during user creation
+let isCreatingUser = false;
+
+export function setCreatingUserFlag(value: boolean) {
+  isCreatingUser = value;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -51,16 +58,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       (async () => {
+        // If we're creating a user, ignore all auth state changes temporarily
+        if (isCreatingUser) {
+          // Wait longer to allow session restoration
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Check if session was restored to admin
+          if (adminUserIdRef.current) {
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+            if (currentSession?.user?.id === adminUserIdRef.current) {
+              // Session was restored, don't update state
+              return;
+            }
+          }
+        }
+
         // If we have an admin user ID stored and the new session is NOT the admin,
         // delay updating state to allow session restoration
         if (adminUserIdRef.current && session?.user && session.user.id !== adminUserIdRef.current) {
           // Longer delay to allow session restoration to complete
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 500));
           
           // Check if session was restored to admin
           const { data: { session: currentSession } } = await supabase.auth.getSession();
           if (currentSession?.user?.id === adminUserIdRef.current) {
             // Session was restored, don't update state - this prevents UI flicker
+            return;
+          }
+        }
+
+        // Also handle signOut events - delay to allow session restoration
+        if (adminUserIdRef.current && !session && event === 'SIGNED_OUT') {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Check if session was restored to admin
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (currentSession?.user?.id === adminUserIdRef.current) {
+            // Session was restored, don't update state
             return;
           }
         }

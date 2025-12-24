@@ -7,7 +7,7 @@ import { SectionCard } from '../../components/Card';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import { Plus, Edit2, Trash2, Search, MoreVertical, XCircle, CheckCircle } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, setCreatingUserFlag } from '../../contexts/AuthContext';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
@@ -152,6 +152,7 @@ export default function EmployeeManagement() {
       } else {
         // Set flag to prevent UI updates during user creation
         setIsCreatingUser(true);
+        setCreatingUserFlag(true); // Tell AuthContext to ignore auth state changes
 
         try {
           // Save current admin session before creating user
@@ -166,6 +167,7 @@ export default function EmployeeManagement() {
             access_token: currentSession.access_token,
             refresh_token: currentSession.refresh_token,
           };
+          const adminUserId = currentSession.user.id;
 
           // Create new user (this will auto-sign-in as the new user)
           const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -188,10 +190,15 @@ export default function EmployeeManagement() {
             throw new Error('User creation failed - no user returned');
           }
 
-          // Immediately sign out and restore admin session BEFORE any UI updates
+          const newUserId = authData.user.id;
+
+          // Immediately sign out the new user
           await supabase.auth.signOut();
           
-          // Restore admin session synchronously
+          // Small delay to ensure signOut completes
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          
+          // Restore admin session
           const { error: restoreError } = await supabase.auth.setSession({
             access_token: adminSessionData.access_token,
             refresh_token: adminSessionData.refresh_token,
@@ -201,6 +208,15 @@ export default function EmployeeManagement() {
             console.error('Failed to restore admin session:', restoreError);
             throw new Error('Failed to restore admin session. Please try again.');
           }
+
+          // Verify we're back to admin session
+          const { data: { session: restoredSession } } = await supabase.auth.getSession();
+          if (!restoredSession || restoredSession.user.id !== adminUserId) {
+            throw new Error('Session restoration failed. Please refresh the page and try again.');
+          }
+
+          // Wait a bit more to ensure everything is stable
+          await new Promise((resolve) => setTimeout(resolve, 200));
 
           // Wait a bit for the trigger to create the profile
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -217,7 +233,7 @@ export default function EmployeeManagement() {
               is_active: true,
               must_change_password: true,
             })
-            .eq('id', authData.user.id);
+            .eq('id', newUserId);
 
           if (profileError) {
             console.error('Profile update error:', profileError);
@@ -225,7 +241,7 @@ export default function EmployeeManagement() {
             const { error: insertError } = await supabase
               .from('profiles')
               .insert({
-                id: authData.user.id,
+                id: newUserId,
                 email: formData.email,
                 full_name: formData.full_name,
                 phone: formData.phone || null,
@@ -253,8 +269,9 @@ export default function EmployeeManagement() {
             setSuccessMessage(null);
           }, 3000);
         } finally {
-          // Always reset the flag
+          // Always reset the flags
           setIsCreatingUser(false);
+          setCreatingUserFlag(false); // Re-enable auth state updates
         }
       }
 
