@@ -67,31 +67,53 @@ export default function EmployeeManagement() {
 
   // Handle dropdown positioning to prevent it from being cut off
   useEffect(() => {
-    if (showDeleteMenu) {
-      const menuElement = menuRefs.current[showDeleteMenu];
-      const buttonElement = document.querySelector(`[data-employee-id="${showDeleteMenu}"]`) as HTMLElement;
-      
-      if (menuElement && buttonElement) {
-        const buttonRect = buttonElement.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const spaceBelow = viewportHeight - buttonRect.bottom;
-        const spaceAbove = buttonRect.top;
-        const menuHeight = 90; // Approximate height of the dropdown menu
-
-        // If not enough space below but enough space above, position it above
-        if (spaceBelow < menuHeight && spaceAbove > menuHeight) {
-          menuElement.style.bottom = '100%';
-          menuElement.style.top = 'auto';
-          menuElement.style.marginBottom = '4px';
-          menuElement.style.marginTop = '0';
-        } else {
-          menuElement.style.bottom = 'auto';
-          menuElement.style.top = '100%';
-          menuElement.style.marginBottom = '0';
-          menuElement.style.marginTop = '4px';
+    const updateMenuPosition = () => {
+      if (showDeleteMenu) {
+        const menuElement = menuRefs.current[showDeleteMenu];
+        const buttonElement = document.querySelector(`[data-employee-id="${showDeleteMenu}"]`) as HTMLElement;
+        
+        if (menuElement && buttonElement) {
+          const buttonRect = buttonElement.getBoundingClientRect();
+          const viewportHeight = window.innerHeight;
+          const viewportWidth = window.innerWidth;
+          const menuHeight = 90; // Approximate height of the dropdown menu
+          
+          // Calculate space available
+          const spaceBelow = viewportHeight - buttonRect.bottom;
+          const spaceAbove = buttonRect.top;
+          
+          // Use fixed positioning relative to viewport
+          menuElement.style.position = 'fixed';
+          menuElement.style.zIndex = '9999';
+          
+          // Calculate horizontal position (right-aligned with button)
+          const rightPosition = viewportWidth - buttonRect.right;
+          menuElement.style.right = `${rightPosition}px`;
+          
+          // Calculate vertical position
+          if (spaceBelow < menuHeight && spaceAbove > menuHeight) {
+            // Position above the button
+            menuElement.style.bottom = `${viewportHeight - buttonRect.top + 4}px`;
+            menuElement.style.top = 'auto';
+          } else {
+            // Position below the button
+            menuElement.style.top = `${buttonRect.bottom + 4}px`;
+            menuElement.style.bottom = 'auto';
+          }
         }
       }
-    }
+    };
+
+    updateMenuPosition();
+
+    // Update position on scroll and resize
+    window.addEventListener('scroll', updateMenuPosition, true);
+    window.addEventListener('resize', updateMenuPosition);
+
+    return () => {
+      window.removeEventListener('scroll', updateMenuPosition, true);
+      window.removeEventListener('resize', updateMenuPosition);
+    };
   }, [showDeleteMenu]);
 
   const loadEmployees = async () => {
@@ -574,8 +596,8 @@ export default function EmployeeManagement() {
                                 ref={(el) => {
                                   if (el) menuRefs.current[employee.id] = el;
                                 }}
-                                className="absolute right-0 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-50"
-                                style={{ top: '100%', marginTop: '4px' }}
+                                className="fixed w-56 bg-white rounded-md shadow-lg border border-gray-200"
+                                style={{ zIndex: 9999 }}
                               >
                                 <div className="py-1">
                                   <button
