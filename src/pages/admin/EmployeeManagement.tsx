@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase';
 import { Database } from '../../types/database';
@@ -32,6 +32,7 @@ export default function EmployeeManagement() {
   const [editingEmployee, setEditingEmployee] = useState<ProfileWithDepartment | null>(null);
   const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
   const [showDeleteMenu, setShowDeleteMenu] = useState<string | null>(null);
+  const menuRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
@@ -61,6 +62,35 @@ export default function EmployeeManagement() {
     if (showDeleteMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showDeleteMenu]);
+
+  // Handle dropdown positioning to prevent it from being cut off
+  useEffect(() => {
+    if (showDeleteMenu) {
+      const menuElement = menuRefs.current[showDeleteMenu];
+      const buttonElement = document.querySelector(`[data-employee-id="${showDeleteMenu}"]`) as HTMLElement;
+      
+      if (menuElement && buttonElement) {
+        const buttonRect = buttonElement.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        const spaceBelow = viewportHeight - buttonRect.bottom;
+        const spaceAbove = buttonRect.top;
+        const menuHeight = 90; // Approximate height of the dropdown menu
+
+        // If not enough space below but enough space above, position it above
+        if (spaceBelow < menuHeight && spaceAbove > menuHeight) {
+          menuElement.style.bottom = '100%';
+          menuElement.style.top = 'auto';
+          menuElement.style.marginBottom = '4px';
+          menuElement.style.marginTop = '0';
+        } else {
+          menuElement.style.bottom = 'auto';
+          menuElement.style.top = '100%';
+          menuElement.style.marginBottom = '0';
+          menuElement.style.marginTop = '4px';
+        }
+      }
     }
   }, [showDeleteMenu]);
 
@@ -424,7 +454,7 @@ export default function EmployeeManagement() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[calc(100vh-300px)] overflow-y-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -514,6 +544,7 @@ export default function EmployeeManagement() {
                               className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
                               title="Delete options"
                               disabled={deletingEmployeeId === employee.id}
+                              data-employee-id={employee.id}
                             >
                               {deletingEmployeeId === employee.id ? (
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
@@ -522,7 +553,13 @@ export default function EmployeeManagement() {
                               )}
                             </button>
                             {showDeleteMenu === employee.id && (
-                              <div className="absolute right-0 mt-1 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-10">
+                              <div 
+                                ref={(el) => {
+                                  if (el) menuRefs.current[employee.id] = el;
+                                }}
+                                className="absolute right-0 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-50"
+                                style={{ top: '100%', marginTop: '4px' }}
+                              >
                                 <div className="py-1">
                                   <button
                                     onClick={() => handleDelete(employee.id)}

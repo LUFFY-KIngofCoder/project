@@ -10,7 +10,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-2">
-            <div className="h-9 w-9 bg-blue-50 border border-blue-100 rounded-lg overflow-hidden flex items-center justify-center">
+            <div className="h-12 w-12 bg-blue-50 border border-blue-100 rounded-lg overflow-hidden flex items-center justify-center">
               <img src={logo} alt="Logo" className="h-7 w-7 object-contain" />
             </div>
             <div>
