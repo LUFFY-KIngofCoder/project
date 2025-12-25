@@ -11,10 +11,31 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 const base = SUPABASE_URL.replace(/\/+$/, '');
 
-const today = new Date();
-const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
-  today.getDate(),
+// Compute today's date in IST (UTC+5:30) to match business day
+const now = new Date();
+const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+const dateStr = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(
+  ist.getUTCDate(),
 ).padStart(2, '0')}`;
+const dayOfWeek = ist.getUTCDay();
+
+async function isHoliday(dateStr, dayOfWeek) {
+  const url = `${base}/rest/v1/holidays?date=eq.${dateStr}&select=is_holiday`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      apikey: SERVICE_KEY,
+    },
+  });
+  if (!res.ok) throw new Error(`Failed to fetch holidays: ${res.status} ${await res.text()}`);
+  const rows = await res.json();
+  if (Array.isArray(rows) && rows.length > 0) {
+    return !!rows[0].is_holiday;
+  }
+  // Default: Sundays are holidays unless overridden
+  return dayOfWeek === 0;
+}
 
 async function fetchActiveEmployees() {
   const url = `${base}/rest/v1/profiles?role=eq.employee&is_active=eq.true`;
@@ -63,6 +84,12 @@ async function insertAbsentees(rows) {
 (async () => {
   try {
     console.log(`Marking absentees for date ${dateStr}...`);
+
+    const holiday = await isHoliday(dateStr, dayOfWeek);
+    if (holiday) {
+      console.log('Today is a holiday — skipping absentee marking.');
+      process.exit(0);
+    }
 
     const [profiles, attendance] = await Promise.all([fetchActiveEmployees(), fetchTodayAttendance()]);
 
