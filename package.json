@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "seed": "node -r dotenv/config scripts/seed_supabase.js",
+    "mark-absentees": "node -r dotenv/config scripts/mark_absentees.js",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
