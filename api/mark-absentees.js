@@ -86,6 +86,7 @@ async function insertAbsentees(rows) {
 }
 
 export default async function handler(req, res) {
+  console.log('[Cron] Invocation started');
   // If CRON_SECRET is configured, require Authorization header from Vercel cron
   if (process.env.CRON_SECRET) {
     const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || '';
