@@ -36,7 +36,8 @@ export default function AdminDashboard() {
 
       const presentCount = attendanceRes.data?.filter((a) => a.status === 'present').length || 0;
       const totalEmployees = employeesRes.count || 0;
-      const absentCount = totalEmployees - (attendanceRes.data?.length || 0);
+      // Fixed: Count only explicitly marked absentees
+      const absentCount = attendanceRes.data?.filter((a) => a.status === 'absent').length || 0;
 
       setStats({
         totalEmployees,
@@ -83,11 +84,10 @@ export default function AdminDashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 {tab.label}
               </button>

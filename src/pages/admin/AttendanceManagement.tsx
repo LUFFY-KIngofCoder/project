@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { AttendanceWithProfile } from '../../types';
+import { AttendanceWithProfile, Profile } from '../../types';
 import { SectionCard } from '../../components/Card';
 import Button from '../../components/Button';
 import Modal from '../../components/Modal';
-import { Check, X, Download, Filter } from 'lucide-react';
+import { Check, X, Download, Filter, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function AttendanceManagement() {
@@ -17,6 +17,31 @@ export default function AttendanceManagement() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [emailFilter, setEmailFilter] = useState('');
   const [editingRecord, setEditingRecord] = useState<AttendanceWithProfile | null>(null);
+
+  // Manual Attendance State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [newAttendance, setNewAttendance] = useState({
+    employee_id: '',
+    date: new Date().toISOString().split('T')[0],
+    status: 'present',
+    work_mode: 'physical',
+    reason: '',
+  });
+
+  useEffect(() => {
+    fetchProfiles();
+  }, []);
+
+  const fetchProfiles = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'employee')
+      .eq('is_active', true)
+      .order('full_name');
+    setProfiles(data || []);
+  };
 
   useEffect(() => {
     const today = new Date();
@@ -142,6 +167,62 @@ export default function AttendanceManagement() {
     }
   };
 
+  const handleAddAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAttendance.employee_id || !newAttendance.date) {
+      alert('Please select an employee and date');
+      return;
+    }
+
+    try {
+      // Check for existing record
+      const { data: existing } = await supabase
+        .from('attendance')
+        .select('id')
+        .eq('employee_id', newAttendance.employee_id)
+        .eq('date', newAttendance.date)
+        .maybeSingle();
+
+      if (existing) {
+        alert('Attendance record already exists for this employee on the selected date.');
+        return;
+      }
+
+      const payload: any = {
+        employee_id: newAttendance.employee_id,
+        date: newAttendance.date,
+        status: newAttendance.status,
+        reason: newAttendance.reason || 'Manually marked by admin',
+        is_approved: true,
+        approved_by: profile?.id,
+        approved_at: new Date().toISOString(),
+      };
+
+      if (newAttendance.status === 'present' || newAttendance.status === 'half_day') {
+        payload.work_mode = newAttendance.work_mode;
+      } else {
+        payload.work_mode = null;
+      }
+
+      const { error } = await supabase.from('attendance').insert(payload);
+
+      if (error) throw error;
+
+      setIsAddModalOpen(false);
+      setNewAttendance({
+        employee_id: '',
+        date: new Date().toISOString().split('T')[0],
+        status: 'present',
+        work_mode: 'physical',
+        reason: '',
+      });
+      loadAttendance();
+    } catch (error) {
+      console.error('Error adding attendance:', error);
+      alert('Failed to add attendance record');
+    }
+  };
+
   const exportToCSV = () => {
     const headers = ['Date', 'Employee', 'Status', 'Check In', 'Check Out', 'Approved'];
     const rows = attendance.map((record) => [
@@ -235,6 +316,10 @@ export default function AttendanceManagement() {
             <Download className="h-4 w-4" />
             <span>Export CSV</span>
           </Button>
+          <Button onClick={() => setIsAddModalOpen(true)} className="flex items-center space-x-2 ml-2">
+            <Plus className="h-4 w-4" />
+            <span>Mark Attendance</span>
+          </Button>
         </div>
 
         <div className="overflow-x-auto max-h-[calc(100vh-300px)] overflow-y-auto">
@@ -286,13 +371,12 @@ export default function AttendanceManagement() {
                   <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{record.reason || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
-                      className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        record.is_approved
-                          ? 'bg-green-100 text-green-800'
-                          : record.approved_by
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${record.is_approved
+                        ? 'bg-green-100 text-green-800'
+                        : record.approved_by
                           ? 'bg-red-100 text-red-800'
                           : 'bg-yellow-100 text-yellow-800'
-                      }`}
+                        }`}
                     >
                       {record.is_approved ? 'Approved' : record.approved_by ? 'Denied' : 'Pending'}
                     </span>
@@ -352,13 +436,13 @@ export default function AttendanceManagement() {
                   setEditingRecord((prev) =>
                     prev
                       ? {
-                          ...prev,
-                          status: e.target.value as 'present' | 'half_day' | 'on_leave' | 'absent',
-                          // Clear work_mode when not working day
-                          ...(e.target.value === 'present' || e.target.value === 'half_day'
-                            ? {}
-                            : { work_mode: null }),
-                        }
+                        ...prev,
+                        status: e.target.value as 'present' | 'half_day' | 'on_leave' | 'absent',
+                        // Clear work_mode when not working day
+                        ...(e.target.value === 'present' || e.target.value === 'half_day'
+                          ? {}
+                          : { work_mode: null }),
+                      }
                       : prev,
                   )
                 }
@@ -389,11 +473,10 @@ export default function AttendanceManagement() {
                   ].map((option) => (
                     <label
                       key={option.value}
-                      className={`relative block p-3 border-2 rounded-lg cursor-pointer transition-all ${
-                        (editingRecord as any).work_mode === option.value
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
+                      className={`relative block p-3 border-2 rounded-lg cursor-pointer transition-all ${(editingRecord as any).work_mode === option.value
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
                     >
                       <input
                         type="radio"
@@ -441,6 +524,112 @@ export default function AttendanceManagement() {
           </form>
         )}
       </Modal>
-    </div>
+
+
+      {/* Add Attendance Modal */}
+      <Modal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title="Mark Attendance"
+      >
+        <form onSubmit={handleAddAttendance} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+            <select
+              value={newAttendance.employee_id}
+              onChange={(e) => setNewAttendance({ ...newAttendance, employee_id: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            >
+              <option value="">Select Employee</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.email})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+            <input
+              type="date"
+              value={newAttendance.date}
+              onChange={(e) => setNewAttendance({ ...newAttendance, date: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select
+              value={newAttendance.status}
+              onChange={(e) => setNewAttendance({ ...newAttendance, status: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="present">Present</option>
+              <option value="half_day">Half Day</option>
+              <option value="on_leave">On Leave</option>
+              <option value="absent">Absent</option>
+            </select>
+          </div>
+
+          {(newAttendance.status === 'present' || newAttendance.status === 'half_day') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Work Mode</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[
+                  { value: 'physical', label: 'Physical (On-site)' },
+                  { value: 'wfh', label: 'Work From Home' },
+                ].map((option) => (
+                  <label
+                    key={option.value}
+                    className={`relative block p-3 border-2 rounded-lg cursor-pointer transition-all ${newAttendance.work_mode === option.value
+                      ? 'border-blue-600 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                  >
+                    <input
+                      type="radio"
+                      name="work_mode_new"
+                      value={option.value}
+                      checked={newAttendance.work_mode === option.value}
+                      onChange={() => setNewAttendance({ ...newAttendance, work_mode: option.value })}
+                      className="sr-only"
+                    />
+                    <div className="font-medium text-gray-900 text-sm">{option.label}</div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+            <textarea
+              value={newAttendance.reason}
+              onChange={(e) => setNewAttendance({ ...newAttendance, reason: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Optional reason..."
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsAddModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Mark Attendance
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </div >
   );
 }
