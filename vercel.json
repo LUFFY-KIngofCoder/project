@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/mark-absentees",
-      "schedule": "00 18 * * *"
+      "schedule": "30 15 * * *"
     }
   ]
 }
